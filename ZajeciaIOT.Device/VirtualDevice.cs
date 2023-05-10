@@ -66,7 +66,7 @@ namespace ZajeciaIOT.Device
                         Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
                         eventMessage.ContentType = MediaTypeNames.Application.Json;
                         eventMessage.ContentEncoding = "utd-8";
-                        eventMessage.Properties.Add("temperatureAlert", (data.temperature > 30) ? "true" : "false");
+                        eventMessage.Properties.Add("temperatureAlert", (data.temperature > 80) ? "true" : "false");
                         Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message for Device {deviceNumber}, Message: {i}, Data: [{dataString}]");
 
                         await deviceClient.SendEventAsync(eventMessage);
