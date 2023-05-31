@@ -10,7 +10,7 @@ Console.WriteLine("Connection success");
 await device.InitializeHandlers();
 await device.UpdateTwinAsync();
 
-await device.SendMessages(1, 1000);
+await device.SendMessages(30, 1000);
 
 Console.WriteLine("Finished! Press key to close...");
 Console.ReadLine();

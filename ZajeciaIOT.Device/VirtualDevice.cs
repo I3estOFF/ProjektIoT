@@ -3,91 +3,157 @@ using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
 using Opc.UaFx.Client;
 using Opc.UaFx;
+using System;
 using System.Net.Mime;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace ZajeciaIOT.Device
 {
     public class VirtualDevice
     {
         private readonly DeviceClient deviceClient;
+        private readonly OpcClient opcClient;
 
         public VirtualDevice(DeviceClient deviceClient)
-            {
+        {
             this.deviceClient = deviceClient;
+            this.opcClient = new OpcClient("opc.tcp://localhost:4840/");
+            this.opcClient.Connect();
         }
+
         #region Sending Messages
         public async Task SendMessages(int nrOfMessages, int delay)
         {
-            using (var client = new OpcClient("opc.tcp://localhost:4840/"))
+            Console.WriteLine($"Device sending {nrOfMessages} messages to IoTHub...\n");
+
+            for (int deviceNumber = 1; deviceNumber <= 5; deviceNumber++)
             {
-                client.Connect();
-
-                Console.WriteLine($"Device sending {nrOfMessages} messages to IoTHub...\n");
-
-                for (int deviceNumber = 1; deviceNumber <= 5; deviceNumber++)
+                for (int i = 0; i < nrOfMessages; i++)
                 {
-                    for (int i = 0; i < nrOfMessages; i++)
+                    var commands = new OpcReadNode[]
                     {
-                        var commands = new OpcReadNode[]
-                        {
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/ProductionStatus"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/ProductionRate"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/WorkorderId"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/Temperature"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/GoodCount"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/BadCount"),
-                    new OpcReadNode($"ns=2;s=Device {deviceNumber}/DeviceError")
-                        };
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/ProductionStatus"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/ProductionRate"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/WorkorderId"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/Temperature"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/GoodCount"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/BadCount"),
+                        new OpcReadNode($"ns=2;s=Device {deviceNumber}/DeviceError")
+                    };
 
-                        var results = client.ReadNodes(commands);
+                    var results = this.opcClient.ReadNodes(commands); // Używanie opcClient zamiast client
 
-                        var productionStatus = results.ElementAt(0).Value.ToString();
-                        var productionRate = Convert.ToDouble(results.ElementAt(1).Value);
-                        var workorderId = results.ElementAt(2).Value.ToString();
-                        var temperature = Convert.ToDouble(results.ElementAt(3).Value);
-                        var goodCount = Convert.ToInt32(results.ElementAt(4).Value);
-                        var badCount = Convert.ToInt32(results.ElementAt(5).Value);
-                        var deviceError = results.ElementAt(6).Value.ToString();
+                    var productionStatus = results.ElementAt(0).Value.ToString();
+                    var productionRate = Convert.ToDouble(results.ElementAt(1).Value);
+                    var workorderId = results.ElementAt(2).Value.ToString();
+                    var temperature = Convert.ToDouble(results.ElementAt(3).Value);
+                    var goodCount = Convert.ToInt32(results.ElementAt(4).Value);
+                    var badCount = Convert.ToInt32(results.ElementAt(5).Value);
+                    var deviceError = results.ElementAt(6).Value.ToString();
 
-                        var data = new
-                        {
-                            productionStatus,
-                            productionRate,
-                            workorderId,
-                            temperature,
-                            goodCount,
-                            badCount,
-                            deviceError
-                        };
+                    var data = new
+                    {
+                        productionStatus,
+                        productionRate,
+                        workorderId,
+                        temperature,
+                        goodCount,
+                        badCount,
+                        deviceError
+                    };
 
-                        var dataString = JsonConvert.SerializeObject(data);
+                    var dataString = JsonConvert.SerializeObject(data);
 
-                        Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
-                        eventMessage.ContentType = MediaTypeNames.Application.Json;
-                        eventMessage.ContentEncoding = "utd-8";
-                        eventMessage.Properties.Add("temperatureAlert", (data.temperature > 80) ? "true" : "false");
-                        Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message for Device {deviceNumber}, Message: {i}, Data: [{dataString}]");
+                    Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
+                    eventMessage.ContentType = MediaTypeNames.Application.Json;
+                    eventMessage.ContentEncoding = "utd-8";
+                    eventMessage.Properties.Add("temperatureAlert", (data.temperature > 80) ? "true" : "false");
 
-                        await deviceClient.SendEventAsync(eventMessage);
+                    Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message for Device {deviceNumber}, Message: {i}, Data: [{dataString}]");
 
-                        if (i < nrOfMessages - 1)
-                            await Task.Delay(delay);
-                    }
+                    await this.deviceClient.SendEventAsync(eventMessage);
+                    if (i < nrOfMessages - 1)
+                        await Task.Delay(delay);
                 }
             }
 
             Console.WriteLine();
         }
-
-
         #endregion
+
+        #region Direct Methods
+        private async Task<MethodResponse> SendMessagesHandler(MethodRequest methodRequest, object userContext)
+        {
+            Console.WriteLine($"\tMETHOD EXCUTED: {methodRequest.Name}");
+
+            var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { nrOfMessages = default(int), delay = default(int) });
+            await SendMessages(payload.nrOfMessages, payload.delay);
+
+            return new MethodResponse(0);
+        }
+
+        private async Task<MethodResponse> DirectMethodHandler(MethodRequest methodRequest, object userContext)
+        {
+            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+
+            if (methodRequest.Name == "EmergencyStop")
+            {
+                Console.WriteLine("\tEmergency stop triggered!");
+
+                await Task.Run(() =>
+                {
+                    var emergencyStopMethod = new OpcCallMethod("ns=2;s=Device 1", "ns=2;s=Device 1/EmergencyStop");
+                    this.opcClient.CallMethod(emergencyStopMethod);
+                });
+
+                return new MethodResponse(200);
+            }
+            else if (methodRequest.Name == "ResetErrorStatus")
+            {
+                Console.WriteLine("\tResetting error status!");
+
+                await Task.Run(() =>
+                {
+                    var resetErrorStatusMethod = new OpcCallMethod("ns=2;s=Device 1", "ns=2;s=Device 1/ResetErrorStatus");
+                    this.opcClient.CallMethod(resetErrorStatusMethod);
+                });
+
+                return new MethodResponse(200);
+            }
+
+            return new MethodResponse(400);
+        }
+
+
+
+        private async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
+        {
+            Console.WriteLine($"\tMETHOD EXCUTED: {methodRequest.Name}");
+
+            await Task.Delay(1000);
+
+            return new MethodResponse(0);
+        }
+        #endregion
+
+        public async Task InitializeHandlers()
+        {
+            await this.deviceClient.SetReceiveMessageHandlerAsync(OnC2dMessageReceivedAsync, this.deviceClient);
+
+            await this.deviceClient.SetMethodDefaultHandlerAsync(DefaultServiceHandler, this.deviceClient);
+            await this.deviceClient.SetMethodHandlerAsync("SendMessages", SendMessagesHandler, this.deviceClient);
+            await this.deviceClient.SetMethodDefaultHandlerAsync(DirectMethodHandler, this.deviceClient);
+
+            await this.deviceClient.SetDesiredPropertyUpdateCallbackAsync(OnDesiredPropertyChanged, this.deviceClient);
+        }
+
         #region Receive Messages
         private async Task OnC2dMessageReceivedAsync(Message receivedMessage, object _)
         {
             Console.WriteLine($"\t{DateTime.Now}> C2D message callback = message received with Id={receivedMessage.MessageId}");
             PrintMessages(receivedMessage);
-            await deviceClient.CompleteAsync(receivedMessage);
+            await this.deviceClient.CompleteAsync(receivedMessage);
             Console.WriteLine($"\t{DateTime.Now}> Completed C2D message with Id={receivedMessage.MessageId}.");
 
             receivedMessage.Dispose();
@@ -104,34 +170,12 @@ namespace ZajeciaIOT.Device
                 Console.WriteLine($"\t\tProperty[{propCount++}> Key={prop.Key} : Valude={prop.Value}");
             }
         }
-
         #endregion
-        #region Direct Methods
-        private async Task<MethodResponse> SendMessagesHandler(MethodRequest methodRequest, object userContext)
-        {
-            Console.WriteLine($"\tMETHOD EXCUTED: {methodRequest.Name}");
 
-            var payload = JsonConvert.DeserializeAnonymousType(methodRequest.DataAsJson, new { nrOfMessages = default(int), delay = default(int) });
-            await SendMessages(payload.nrOfMessages, payload.delay);
-
-            return new MethodResponse(0);
-
-        }
-
-        private async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
-        {
-            Console.WriteLine($"\tMETHOD EXCUTED: {methodRequest.Name}");
-
-            await Task.Delay(1000);
-
-            return new MethodResponse(0);
-        }
-
-        #endregion
         #region Device Twin
         public async Task UpdateTwinAsync()
         {
-            var twin = await deviceClient.GetTwinAsync();
+            var twin = await this.deviceClient.GetTwinAsync();
 
             Console.WriteLine($"\n Initial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
             Console.WriteLine();
@@ -139,7 +183,7 @@ namespace ZajeciaIOT.Device
             var reportedProperties = new TwinCollection();
             reportedProperties["DateTimeLastAppLaunch"] = DateTime.Now;
 
-            await deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
+            await this.deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
         }
 
         private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object _)
@@ -149,17 +193,8 @@ namespace ZajeciaIOT.Device
             TwinCollection reportedProperties = new TwinCollection();
             reportedProperties["DateTimeLastDesiredPropertyChangedReceived"] = DateTime.Now;
 
-            await deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
+            await this.deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
         }
         #endregion
-        public async Task InitializeHandlers()
-        {
-            await deviceClient.SetReceiveMessageHandlerAsync(OnC2dMessageReceivedAsync, deviceClient);
-
-            await deviceClient.SetMethodDefaultHandlerAsync(DefaultServiceHandler, deviceClient);
-            await deviceClient.SetMethodHandlerAsync("SendMessages", SendMessagesHandler, deviceClient);
-
-            await deviceClient.SetDesiredPropertyUpdateCallbackAsync(OnDesiredPropertyChanged, deviceClient);
-        }
     }
 }
