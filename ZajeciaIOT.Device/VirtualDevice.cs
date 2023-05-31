@@ -42,7 +42,7 @@ namespace ZajeciaIOT.Device
                         new OpcReadNode($"ns=2;s=Device {deviceNumber}/DeviceError")
                     };
 
-                    var results = this.opcClient.ReadNodes(commands); // Używanie opcClient zamiast client
+                    var results = this.opcClient.ReadNodes(commands);
 
                     var productionStatus = results.ElementAt(0).Value.ToString();
                     var productionRate = Convert.ToDouble(results.ElementAt(1).Value);
@@ -67,7 +67,7 @@ namespace ZajeciaIOT.Device
 
                     Message eventMessage = new Message(Encoding.UTF8.GetBytes(dataString));
                     eventMessage.ContentType = MediaTypeNames.Application.Json;
-                    eventMessage.ContentEncoding = "utd-8";
+                    eventMessage.ContentEncoding = "utf-8";
                     eventMessage.Properties.Add("temperatureAlert", (data.temperature > 80) ? "true" : "false");
 
                     Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message for Device {deviceNumber}, Message: {i}, Data: [{dataString}]");
@@ -125,8 +125,6 @@ namespace ZajeciaIOT.Device
             return new MethodResponse(400);
         }
 
-
-
         private async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
         {
             Console.WriteLine($"\tMETHOD EXCUTED: {methodRequest.Name}");
@@ -167,7 +165,7 @@ namespace ZajeciaIOT.Device
             int propCount = 0;
             foreach (var prop in receivedMessage.Properties)
             {
-                Console.WriteLine($"\t\tProperty[{propCount++}> Key={prop.Key} : Valude={prop.Value}");
+                Console.WriteLine($"\t\tProperty[{propCount++}]> Key={prop.Key} : Value={prop.Value}");
             }
         }
         #endregion
@@ -177,24 +175,52 @@ namespace ZajeciaIOT.Device
         {
             var twin = await this.deviceClient.GetTwinAsync();
 
-            Console.WriteLine($"\n Initial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
+            Console.WriteLine($"\nOdebrano początkową wartość twin:\n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
             Console.WriteLine();
 
             var reportedProperties = new TwinCollection();
-            reportedProperties["DateTimeLastAppLaunch"] = DateTime.Now;
 
-            await this.deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
+            for (int deviceNumber = 1; deviceNumber <= 5; deviceNumber++)
+            {
+                var commands = new OpcReadNode[]
+                {
+            new OpcReadNode($"ns=2;s=Device {deviceNumber}/ProductionRate"),
+            new OpcReadNode($"ns=2;s=Device {deviceNumber}/DeviceError")
+                };
+
+                var results = this.opcClient.ReadNodes(commands);
+
+                var productionRate = Convert.ToDouble(results.ElementAt(0).Value);
+                var deviceError = results.ElementAt(1).Value.ToString();
+
+                var deviceInfo = new
+                {
+                    ProductionRate = productionRate,
+                    DeviceError = deviceError
+                };
+
+                reportedProperties[$"Device{deviceNumber}"] = JsonConvert.SerializeObject(deviceInfo);
+            }
+
+            var twinPatch = new TwinCollection();
+            if (reportedProperties.Count > 0)
+            {
+                twinPatch["properties"] = reportedProperties;
+            }
+
+            await this.deviceClient.UpdateReportedPropertiesAsync(twinPatch);
+
+            Console.WriteLine($"\nStan twin po aktualizacji właściwości:\n{JsonConvert.SerializeObject(await this.deviceClient.GetTwinAsync(), Formatting.Indented)}");
+            Console.WriteLine();
         }
 
-        private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object _)
+        private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object userContext)
         {
-            Console.WriteLine($"\tDesired property change:\n\t {JsonConvert.SerializeObject(desiredProperties)}");
-            Console.WriteLine("\tSending current time as repreted property");
-            TwinCollection reportedProperties = new TwinCollection();
-            reportedProperties["DateTimeLastDesiredPropertyChangedReceived"] = DateTime.Now;
+            Console.WriteLine($"\tDesired property changed: {desiredProperties.ToJson()}");
 
-            await this.deviceClient.UpdateReportedPropertiesAsync(reportedProperties);
+            await UpdateTwinAsync();
         }
-        #endregion
-    }
+        }
+    #endregion
 }
+
