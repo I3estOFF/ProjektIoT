@@ -1,0 +1,42 @@
+{
+    "name": "iotzajecia",
+    "startFile": "Transformation.asaql",
+    "configurations": [
+        {
+            "filePath": "JobConfig.json",
+            "subType": "JobConfig"
+        },
+        {
+            "filePath": "Outputs/avg-temperature.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/error-stats.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/production-kpis.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/temperature-alerts.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/temperature-growth.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/temperature-noalert-duration.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Outputs/temperature-stats.json",
+            "subType": "Output"
+        },
+        {
+            "filePath": "Inputs/iot.json",
+            "subType": "Input"
+        }
+    ]
+}
