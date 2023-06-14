@@ -15,12 +15,13 @@ namespace ZajeciaIOT.Device
         private readonly DeviceClient deviceClient;
         private readonly OpcClient opcClient;
 
-        public VirtualDevice(DeviceClient deviceClient)
+        public VirtualDevice(DeviceClient deviceClient, string opcServerUrl)
         {
             this.deviceClient = deviceClient;
-            this.opcClient = new OpcClient("opc.tcp://localhost:4840/");
+            this.opcClient = new OpcClient(opcServerUrl);
             this.opcClient.Connect();
         }
+
 
         #region Sending Messages
         public async Task SendMessages(int nrOfMessages, int delay)
