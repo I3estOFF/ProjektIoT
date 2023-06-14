@@ -1,0 +1,127 @@
+WITH SelectPreviousEvent AS
+(
+    SELECT temperature,
+    IoTHub.EnqueuedTime as enqueuedTime,
+    IoTHub.ConnectionDeviceId as deviceId,
+    LAG(IoTHub.EnqueuedTime) OVER (LIMIT DURATION(hour,24)) as previousTime,
+    LAG(temperature) OVER (LIMIT DURATION(hour, 24)) as previousTemperature
+    FROM iot
+    TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+)
+
+SELECT
+EnqueuedTime,
+temperature,
+previousTemperature,
+LAG(enqueuedTime) OVER (LIMIT DURATION(hour,24)
+WHEN previousTemperature > 70) as lastAlertOFFtime,
+DATEDIFF(second, LAG(enqueuedTime) OVER (LIMIT DURATION(hour,24) WHEN previousTemperature > 70),
+enqueuedTime) as timeWithoutAlert
+
+INTO [temperature-noalert-duration] 
+FROM SelectPreviousEvent
+WHERE temperature > 70 AND previousTemperature < 70;
+
+
+SELECT
+    IoTHub.EnqueuedTime, IoTHub.ConnectionDeviceId as deviceId,
+    temperature, tempGrowth = temperature - LAG(temperature)
+    OVER (PARTITION BY deviceId LIMIT DURATION(hour, 1))
+    INTO [temperature-growth]
+    FROM iot
+    TIMESTAMP BY 
+    IoTHub.EnqueuedTime;
+
+
+
+SELECT System.Timestamp() as windowEndTime,
+IoTHub.ConnectionDeviceId as deviceId,
+COUNT(*) as nrOfMeasurements,
+AVG(temperature) as avgTemp
+INTO
+[avg-temperature]
+FROM 
+    iot
+TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+GROUP BY
+    IoTHub.ConnectionDeviceId, TumblingWindow(second,10);
+
+
+
+SELECT
+    IoTHub.EnqueuedTime, IoTHub.ConnectionDeviceId, temperature
+INTO
+    [temperature-alerts]
+FROM
+    [iot]
+TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+WHERE
+    temperature > 70;
+
+
+
+SELECT
+    IoTHub.ConnectionDeviceId as deviceId,
+    MAX(goodCount) as goodCount,
+    MAX(badCount) as badCount,
+    CASE 
+        WHEN MAX(goodCount) + MAX(badCount) = 0 THEN NULL
+        ELSE MAX(goodCount) * 100.0 / (MAX(goodCount) + MAX(badCount))
+    END as goodProductionPercentage
+INTO
+    [production-kpis]
+FROM
+    [iot]
+TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+GROUP BY
+    IoTHub.ConnectionDeviceId,
+    TumblingWindow(minute, 5);
+
+
+SELECT
+    System.Timestamp() as windowEndTime,
+    IoTHub.ConnectionDeviceId as deviceId,
+    AVG(temperature) as avgTemperature,
+    MIN(temperature) as minTemperature,
+    MAX(temperature) as maxTemperature
+INTO
+    [temperature-stats]
+FROM
+    [iot]
+TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+GROUP BY
+    IoTHub.ConnectionDeviceId,
+    TumblingWindow(minute, 5, 1)
+
+
+
+
+SELECT
+    System.Timestamp() as windowEndTime,
+    IoTHub.ConnectionDeviceId as deviceId,
+    COUNT(*) as errorCount
+INTO
+    [error-stats]
+FROM
+    [iot]
+TIMESTAMP BY 
+    IoTHub.EnqueuedTime
+WHERE
+    TRY_CAST(deviceError AS bigint) > 0
+GROUP BY
+    IoTHub.ConnectionDeviceId,
+    TumblingWindow(minute, 1)
+HAVING
+    COUNT(*) > 3;
+
+
+
+
+
+
+
